@@ -1,10 +1,8 @@
 import os
-import subprocess
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import ffmpeg
-from tqdm import tqdm
 
 
 class VideoCompressorApp:
@@ -142,19 +140,43 @@ class VideoCompressorApp:
 
         for i, video in enumerate(videos, 1):
             input_file = os.path.join(input_folder, video)
-            output_file = os.path.join(output_folder, video)
             self.current_video.set(f"Сжимается: {video} ({i}/{total_videos})")
-            self.compress_video(input_file, output_file)
+            self.compress_video(input_file, output_folder)
             self.progress.set((i / total_videos) * 100)
 
         # Восстанавливаем кнопку и скрываем сообщение
         self.compress_button.config(state=tk.NORMAL)
         self.status_label.config(text="")
+        # Сообщение о завершении обработки всех видео
         messagebox.showinfo("Готово", "Все видео сжаты!")
 
-    def compress_video(self, input_file, output_file):
+    def get_unique_filename(self, output_path, filename):
+        """Генерация уникального имени файла."""
+        base, ext = os.path.splitext(filename)
+        counter = 1
+        new_filename = filename
+        while os.path.exists(os.path.join(output_path, new_filename)):
+            new_filename = f"{base}_{counter}{ext}"
+            counter += 1
+        return new_filename
+
+    def compress_video(self, input_file, output_path):
         """Сжатие одного видео."""
         try:
+            # Формируем выходной путь с тем же именем файла
+            filename = os.path.basename(input_file)
+            output_file = os.path.join(output_path, filename)
+
+            # Проверяем, существует ли файл
+            if os.path.exists(output_file):
+                # Спрашиваем пользователя, перезаписать ли файл
+                if messagebox.askyesno("Файл существует", f"Файл '{filename}' уже существует. Перезаписать?"):
+                    pass  # Перезаписываем файл
+                else:
+                    # Генерируем уникальное имя файла
+                    filename = self.get_unique_filename(output_path, filename)
+                    output_file = os.path.join(output_path, filename)
+
             # Используем FFmpeg для сжатия
             ffmpeg_args = {
                 "vcodec": self.codec.get() if self.mode.get() == "advanced" else "libx264",
@@ -166,12 +188,16 @@ class VideoCompressorApp:
 
             stream = ffmpeg.input(input_file)
             stream = ffmpeg.output(stream, output_file, **{k: v for k, v in ffmpeg_args.items() if v})
-            ffmpeg.run(stream, capture_stdout=True, capture_stderr=True)
-        except Exception as e:
+            process = ffmpeg.run(stream, capture_stdout=True, capture_stderr=True, overwrite_output=True)
+        except ffmpeg.Error as e:
             # Восстанавливаем кнопку и скрываем сообщение
             self.compress_button.config(state=tk.NORMAL)
             self.status_label.config(text="")
-            messagebox.showerror("Ошибка", f"Ошибка при сжатии видео: {e}")
+            messagebox.showerror("Ошибка", f"Ошибка при сжатии видео: {e.stderr.decode('utf-8')}")
+        except Exception as e:
+            self.compress_button.config(state=tk.NORMAL)
+            self.status_label.config(text="")
+            messagebox.showerror("Ошибка", f"Ошибка при сжатии видео: {str(e)}")
 
 
 if __name__ == "__main__":
